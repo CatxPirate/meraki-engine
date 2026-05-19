@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.env
+*.token
+logs/*.log
+node_modules/

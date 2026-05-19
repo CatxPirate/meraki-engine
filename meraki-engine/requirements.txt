@@ -1,0 +1,3 @@
+puppeteer-core>=22
+websockets>=12
+Pillow>=10

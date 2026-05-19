@@ -1,0 +1,1 @@
+"""Screenshot-to-coordinate interaction."""
