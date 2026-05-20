@@ -3,6 +3,9 @@ End-to-end integration test for safe_click().
 
 Runs against live Chrome CDP on the executor.
 Tests the full flow: locate -> visible -> scroll -> click -> verify.
+
+Uses CdpClient.navigate() which auto-waits for execution context
+after Page.navigate — fixes the Runtime.evaluate → None blocker.
 """
 
 import asyncio
@@ -10,7 +13,12 @@ import logging
 import sys
 import urllib.parse
 
-sys.path.insert(0, "/root/meraki-engine")
+# Adjust path for both local dev and executor VPS
+import os
+for candidate in ("/root/meraki-engine", "/home/ubuntu/meraki-engine"):
+    if os.path.isdir(candidate):
+        sys.path.insert(0, candidate)
+        break
 
 from primitive.dom import CdpClient
 from engine.safe_click import safe_click
@@ -41,16 +49,20 @@ document.getElementById("target-btn").onclick = function(){
 </html>"""
 
 
-async def setup_test_page(cdp):
-    """Navigate to a data: URL containing the test page."""
-    # Use data: URL via Page.navigate
+async def setup_test_page(cdp: CdpClient, sleep_secs: float = 0.5):
+    """Navigate to a data: URL containing the test page.
+
+    Uses CdpClient.navigate() which auto-waits for
+    Runtime.executionContextCreated after Page.navigate,
+    so subsequent evaluate() calls won't return None.
+    """
     encoded = urllib.parse.quote(TEST_HTML, safe="")
     data_url = f"data:text/html;charset=utf-8,{encoded}"
-    await cdp._send("Page.enable")
-    await cdp._send("Page.navigate", {"url": data_url})
-    await asyncio.sleep(1.0)
+    await cdp.navigate(data_url, wait_context=True, timeout=10.0)
+    # Let DOM settle — script tags need time to attach event listeners
+    await asyncio.sleep(sleep_secs)
     title = await cdp.evaluate("document.title")
-    logger.info("Title: %s", title)
+    logger.info("Page title: %s", title)
 
 
 async def test_safe_click_success():
@@ -59,17 +71,21 @@ async def test_safe_click_success():
     await cdp.connect()
     await setup_test_page(cdp)
 
-    status = await cdp.evaluate("document.getElementById('status')?.textContent")
-    logger.info("Initial: %s", status)
-    assert status == "Not clicked yet", f"Unexpected: {status}"
+    status = await cdp.evaluate(
+        "document.getElementById('status')?.textContent"
+    )
+    logger.info("Initial status: %s", status)
+    assert status == "Not clicked yet", f"Unexpected initial: {status}"
 
     result = await safe_click("#target-btn", cdp=cdp)
     assert result is True, f"safe_click returned {result}"
-    logger.info("safe_click: %s", result)
+    logger.info("safe_click result: %s", result)
 
-    status = await cdp.evaluate("document.getElementById('status')?.textContent")
-    assert status == "Clicked!", f"Not clicked: {status}"
-    logger.info("Final: %s", status)
+    status = await cdp.evaluate(
+        "document.getElementById('status')?.textContent"
+    )
+    assert status == "Clicked!", f"Not clicked — got: {status}"
+    logger.info("Final status: %s", status)
     await cdp.close()
     logger.info("TEST 1 PASSED")
 
@@ -84,7 +100,7 @@ async def test_safe_click_missing():
         await safe_click("#nonexistent", cdp=cdp)
         assert False, "Should have raised HumanConfirmRequired"
     except HumanConfirmRequired as e:
-        logger.info("Got: %s", e)
+        logger.info("Got expected: %s", e)
 
     await cdp.close()
     logger.info("TEST 2 PASSED")
@@ -113,10 +129,15 @@ async def test_safe_click_escaped_selector():
     """)
     await asyncio.sleep(0.3)
 
-    result = await safe_click('''button[data-label="it's working"]''', cdp=cdp)
-    assert result is True, f"Got {result}"
+    result = await safe_click(
+        '''button[data-label="it's working"]''',
+        cdp=cdp,
+    )
+    assert result is True, f"safe_click returned {result}"
 
-    status = await cdp.evaluate("document.getElementById('data-status')?.textContent")
+    status = await cdp.evaluate(
+        "document.getElementById('data-status')?.textContent"
+    )
     assert status == "Data clicked!", f"Got: {status}"
     logger.info("Status: %s", status)
 
