@@ -78,7 +78,7 @@ async def _poll_reply(
     except ImportError:
         return None
 
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
     offset = 0
 
     logger.info(
@@ -86,8 +86,8 @@ async def _poll_reply(
         timeout, chat_id, sent_message_id,
     )
 
-    while asyncio.get_event_loop().time() < deadline:
-        remaining = deadline - asyncio.get_event_loop().time()
+    while asyncio.get_running_loop().time() < deadline:
+        remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             break
 

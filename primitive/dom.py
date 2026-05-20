@@ -79,6 +79,21 @@ class CdpClient:
             pass
 
 
+# ─── Helpers ─────────────────────────────────────────────────────
+
+def _esc(s: str) -> str:
+    """Escape string for safe injection into JS single-quoted string.
+
+    Handles backslash, single quote, and newlines so selectors
+    like ``button[data-value="it's"]`` don't break the JS template.
+    """
+    return (
+        s.replace("\\", "\\\\")
+         .replace("'", "\\'")
+         .replace("\n", "\\n")
+    )
+
+
 # ─── DOM primitives ──────────────────────────────────────────────
 
 async def locate(
@@ -90,9 +105,10 @@ async def locate(
     Returns dict with {exists, visible, bounds, text} or None if not found.
     """
     cdp = cdp or CdpClient()
+    sel = _esc(selector)
     result = await cdp.evaluate(f"""
         (() => {{
-            const el = document.querySelector('{selector}');
+            const el = document.querySelector('{sel}');
             if (!el) return null;
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
@@ -129,15 +145,20 @@ async def scroll_into_view(
 ) -> None:
     """Scroll element into view."""
     cdp = cdp or CdpClient()
-    await cdp.evaluate(f"document.querySelector('{selector}')?.scrollIntoView({{behavior: 'instant', block: 'center'}})")
+    sel = _esc(selector)
+    await cdp.evaluate(
+        f"document.querySelector('{sel}')"
+        f"?.scrollIntoView({{behavior: 'instant', block: 'center'}})"
+    )
 
 
 async def click(selector: str, cdp: CdpClient | None = None) -> bool:
     """Click element by selector. Returns True if element clicked."""
     cdp = cdp or CdpClient()
+    sel = _esc(selector)
     result = await cdp.evaluate(f"""
         (() => {{
-            const el = document.querySelector('{selector}');
+            const el = document.querySelector('{sel}');
             if (!el) return false;
             el.click();
             return true;
@@ -149,8 +170,9 @@ async def click(selector: str, cdp: CdpClient | None = None) -> bool:
 async def get_text(selector: str, cdp: CdpClient | None = None) -> str:
     """Get text content of element."""
     cdp = cdp or CdpClient()
+    sel = _esc(selector)
     result = await cdp.evaluate(
-        f"document.querySelector('{selector}')?.textContent?.trim() || ''"
+        f"document.querySelector('{sel}')?.textContent?.trim() || ''"
     )
     return result or ""
 
@@ -162,8 +184,8 @@ async def wait_for_element(
 ) -> bool:
     """Wait for element to appear. Returns True if found within timeout."""
     cdp = cdp or CdpClient()
-    deadline = asyncio.get_event_loop().time() + timeout / 1000
-    while asyncio.get_event_loop().time() < deadline:
+    deadline = asyncio.get_running_loop().time() + timeout / 1000
+    while asyncio.get_running_loop().time() < deadline:
         info = await locate(selector, cdp)
         if info and info.get("exists") and info.get("visible"):
             return True

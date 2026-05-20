@@ -136,14 +136,14 @@ async def waitAndVerify(
     """
     s = settings or Settings()
     timeout = timeout or s.verify_timeout
-    deadline = asyncio.get_event_loop().time() + timeout / 1000
+    deadline = asyncio.get_running_loop().time() + timeout / 1000
 
     logger.info(
         "[verify] waiting up to %dms for %d checks",
         timeout, len(checks),
     )
 
-    while asyncio.get_event_loop().time() < deadline:
+    while asyncio.get_running_loop().time() < deadline:
         results = []
         for i, check in enumerate(checks):
             try:
