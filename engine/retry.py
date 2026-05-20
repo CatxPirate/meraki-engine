@@ -4,22 +4,30 @@ Fallback order:
     RETRY 3x → SCROLL → COORDINATE → HUMAN CONFIRM
 
 Every step logs: what tried, why failed, what next.
+
+HumanConfirmChannel (from engine/human.py) can be injected to
+enable Telegram-based confirmations. Without it, HUMAN state
+immediately raises HumanConfirmRequired.
 """
 
 import asyncio
 import logging
 from collections.abc import Callable
 from enum import Enum, auto
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 from config.settings import Settings
 from config.constants import FallbackOrder
+
+if TYPE_CHECKING:
+    from engine.human import HumanConfirmChannel
 
 logger = logging.getLogger("meraki.retry")
 
 
 class HumanConfirmRequired(Exception):
     """Raised when all automated fallbacks exhausted."""
+
     def __init__(self, action_name: str, last_error: str):
         self.action_name = action_name
         self.last_error = last_error
@@ -31,6 +39,7 @@ class HumanConfirmRequired(Exception):
 
 class FallbackState(Enum):
     """State machine states"""
+
     IDLE = auto()
     RETRYING = auto()
     SCROLLING = auto()
@@ -57,6 +66,7 @@ class RetryOrchestrator:
         scroll_fn: Callable | None = None,
         coords: Tuple[int, int] | None = None,
         coord_click_fn: Callable | None = None,
+        human_channel: "HumanConfirmChannel | None" = None,
     ) -> bool:
         """Execute action with full retry + fallback chain.
 
@@ -67,13 +77,19 @@ class RetryOrchestrator:
             scroll_fn: async callable(str) — scrolls to selector
             coords: (x, y) for coordinate fallback
             coord_click_fn: async callable(int, int) — clicks at coords
+            human_channel: optional HumanConfirmChannel for
+                Telegram-based confirm. Without it, HUMAN state
+                raises immediately.
 
         Returns:
-            True if action succeeded, raises HumanConfirmRequired if all fail.
+            True if action succeeded.
 
         Raises:
-            HumanConfirmRequired: when all fallbacks exhausted
+            HumanConfirmRequired: when all fallbacks + human
+                confirm exhausted or human says no.
         """
+        last_error = "Action returned False"
+
         # --- Phase 1: Retry with exponential delay ---
         self.state = FallbackState.RETRYING
         delay = 0
@@ -82,7 +98,7 @@ class RetryOrchestrator:
             self.attempt = attempt
             logger.info(
                 "[%s] RETRY %d/%d — attempting...",
-                action_name, attempt, self.settings.retry_limit
+                action_name, attempt, self.settings.retry_limit,
             )
             await asyncio.sleep(delay)
 
@@ -91,7 +107,8 @@ class RetryOrchestrator:
                 if result:
                     self.state = FallbackState.SUCCESS
                     logger.info(
-                        "[%s] SUCCESS — attempt %d", action_name, attempt
+                        "[%s] SUCCESS — attempt %d",
+                        action_name, attempt,
                     )
                     return True
                 else:
@@ -100,18 +117,19 @@ class RetryOrchestrator:
                         "retrying...",
                         action_name, attempt, self.settings.retry_limit,
                     )
+                    last_error = "Action returned False"
             except Exception as e:
                 logger.warning(
                     "[%s] RETRY %d/%d — error: %s",
                     action_name, attempt, self.settings.retry_limit, e,
                 )
+                last_error = str(e)
 
             # Exponential backoff
             delay = self.settings.scroll_delay * (2 ** (attempt - 1))
 
         logger.warning(
-            "[%s] RETRY exhausted — all %d attempts failed, "
-            "next: SCROLL",
+            "[%s] RETRY exhausted — all %d attempts failed, next: SCROLL",
             action_name, self.settings.retry_limit,
         )
 
@@ -137,6 +155,7 @@ class RetryOrchestrator:
                 logger.warning(
                     "[%s] SCROLL failed — %s", action_name, e,
                 )
+                last_error = f"Scroll failed: {e}"
         else:
             logger.info(
                 "[%s] SCROLL skipped — no scroll_target provided, "
@@ -166,6 +185,7 @@ class RetryOrchestrator:
                 logger.warning(
                     "[%s] COORDINATE failed — %s", action_name, e,
                 )
+                last_error = f"Coordinate click failed: {e}"
         else:
             logger.info(
                 "[%s] COORDINATE skipped — no coords provided, "
@@ -173,15 +193,51 @@ class RetryOrchestrator:
                 action_name,
             )
 
-        # --- Phase 4: Human confirm required ---
+        # --- Phase 4: Human confirm ---
         self.state = FallbackState.HUMAN
         logger.error(
             "[%s] ALL FALLBACKS EXHAUSTED — human confirm required",
             action_name,
         )
+
+        # Try Telegram confirm if channel available
+        if human_channel:
+            decision = await human_channel.request_confirm(
+                action_name=action_name,
+                last_error=last_error,
+            )
+            if decision is True:
+                logger.info(
+                    "[%s] HUMAN approved — retrying one final time",
+                    action_name,
+                )
+                try:
+                    result = await action()
+                    if result:
+                        self.state = FallbackState.SUCCESS
+                        logger.info(
+                            "[%s] SUCCESS — after human-approved retry",
+                            action_name,
+                        )
+                        return True
+                except Exception as e:
+                    logger.error(
+                        "[%s] human-approved retry also failed: %s",
+                        action_name, e,
+                    )
+                    last_error = f"Post-human retry failed: {e}"
+            elif decision is False:
+                logger.info(
+                    "[%s] HUMAN rejected — aborting", action_name,
+                )
+            else:
+                logger.warning(
+                    "[%s] HUMAN timeout — auto-aborting", action_name,
+                )
+
         raise HumanConfirmRequired(
             action_name=action_name,
-            last_error="All automated fallbacks failed."
+            last_error=last_error,
         )
 
 
@@ -194,6 +250,7 @@ async def retryOrFallback(
     coords: Tuple[int, int] | None = None,
     coord_click_fn: Callable | None = None,
     settings: Settings | None = None,
+    human_channel: "HumanConfirmChannel | None" = None,
 ) -> bool:
     """Execute action with retry + fallback chain.
 
@@ -209,4 +266,5 @@ async def retryOrFallback(
         scroll_fn=scroll_fn,
         coords=coords,
         coord_click_fn=coord_click_fn,
+        human_channel=human_channel,
     )
