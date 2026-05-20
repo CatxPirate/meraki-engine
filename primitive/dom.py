@@ -55,14 +55,33 @@ class CdpClient:
                 return t["webSocketDebuggerUrl"]
         raise CDPError("No open page found in Chrome")
 
-    async def connect(self) -> None:
-        """Connect to Chrome CDP and start event listener."""
+    async def connect(
+        self,
+        viewport_width: int = 1920,
+        viewport_height: int = 1080,
+        device_scale_factor: float = 1.0,
+    ) -> None:
+        """Connect to Chrome CDP and start event listener.
+
+        Locks viewport to given dimensions via Emulation.setDeviceMetricsOverride.
+        This ensures screenshot and click coordinates are 1:1 with Xvfb resolution.
+        """
         ws_url = self._get_page_ws_url()
         self._ws = await websockets.connect(ws_url)
         self._listener_task = asyncio.create_task(self._listen())
 
         # Enable Runtime domain to receive execution context events
         await self._send_cmd("Runtime.enable")
+
+        # Lock viewport to match Xvfb resolution (1:1 coordinate mapping)
+        await self._send_cmd("Emulation.setDeviceMetricsOverride", {
+            "width": viewport_width,
+            "height": viewport_height,
+            "deviceScaleFactor": device_scale_factor,
+            "mobile": False,
+        })
+        logger.debug("Viewport locked: %dx%d @%sx",
+                      viewport_width, viewport_height, device_scale_factor)
 
         # Wait for initial execution context
         try:

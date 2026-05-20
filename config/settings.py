@@ -8,3 +8,6 @@ class Settings:
     scroll_delay: float = 0.3
     click_delay: float = 0.1
     human_confirm_timeout: int = 300
+    viewport_width: int = 1920
+    viewport_height: int = 1080
+    device_scale_factor: float = 1.0
