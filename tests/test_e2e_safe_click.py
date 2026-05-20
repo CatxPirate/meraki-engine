@@ -42,7 +42,8 @@ TEST_HTML = """<!DOCTYPE html>
 </div>
 <script>
 document.getElementById("target-btn").onclick = function(){
- document.getElementById("status").textContent="Clicked!"
+ document.getElementById("status").textContent="Clicked!";
+ this.textContent="Clicked!";
 }
 </script>
 </body>
@@ -77,7 +78,20 @@ async def test_safe_click_success():
     logger.info("Initial status: %s", status)
     assert status == "Not clicked yet", f"Unexpected initial: {status}"
 
-    result = await safe_click("#target-btn", cdp=cdp)
+    # safe_click verifies the clicked element changes, but #target-btn's
+    # own state doesn't change — it's #status that changes. Pass wait_checks
+    # to also verify the status element updated.
+    async def status_changed() -> bool:
+        text = await cdp.evaluate(
+            "document.getElementById('status')?.textContent"
+        )
+        return text == "Clicked!"
+
+    result = await safe_click(
+        "#target-btn",
+        cdp=cdp,
+        wait_checks=[status_changed],
+    )
     assert result is True, f"safe_click returned {result}"
     logger.info("safe_click result: %s", result)
 
@@ -125,13 +139,21 @@ async def test_safe_click_escaped_selector():
         document.body.appendChild(s);
         b.onclick = function(){
             document.getElementById("data-status").textContent = "Data clicked!";
+            this.textContent = "Data Clicked!";
         };
     """)
     await asyncio.sleep(0.3)
 
+    async def data_status_changed() -> bool:
+        text = await cdp.evaluate(
+            "document.getElementById('data-status')?.textContent"
+        )
+        return text == "Data clicked!"
+
     result = await safe_click(
         '''button[data-label="it's working"]''',
         cdp=cdp,
+        wait_checks=[data_status_changed],
     )
     assert result is True, f"safe_click returned {result}"
 

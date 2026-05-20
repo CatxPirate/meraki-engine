@@ -123,24 +123,31 @@ async def waitAndVerify(
     timeout: int | None = None,
     interval: float = 0.3,
     settings: Settings | None = None,
+    require_all: bool = False,
 ) -> bool:
-    """Multi-strategy state verification — waits until all checks pass.
+    """Multi-strategy state verification — polls checks until satisfied.
+
+    By default, returns True when ANY check passes (OR logic).
+    One signal is enough to confirm the action worked.
+    Set require_all=True for strict AND logic.
 
     Args:
         checks: list of async callables returning True on success
         timeout: max wait time in ms (default from Settings)
         interval: polling interval in seconds
         settings: Settings instance
+        require_all: if True, ALL checks must pass (AND).
+                     Default False = ANY check (OR).
 
-    Returns True if all checks pass within timeout.
+    Returns True if satisfied within timeout.
     """
     s = settings or Settings()
     timeout = timeout or s.verify_timeout
     deadline = asyncio.get_running_loop().time() + timeout / 1000
 
     logger.info(
-        "[verify] waiting up to %dms for %d checks",
-        timeout, len(checks),
+        "[verify] waiting up to %dms for %s of %d checks",
+        timeout, "ALL" if require_all else "ANY", len(checks),
     )
 
     while asyncio.get_running_loop().time() < deadline:
@@ -149,14 +156,19 @@ async def waitAndVerify(
             try:
                 ok = await check()
                 results.append(ok)
-                if not ok:
+                if ok and not require_all:
+                    # OR mode: one pass is enough, but log others
+                    pass
+                elif not ok:
                     logger.debug("[verify] check %d not yet ready", i + 1)
             except Exception as e:
                 logger.debug("[verify] check %d error: %s", i + 1, e)
                 results.append(False)
 
-        if all(results):
-            logger.info("[verify] all %d checks passed", len(checks))
+        predicate = all if require_all else any
+        if predicate(results):
+            logger.info("[verify] %s %d checks passed",
+                        "all" if require_all else "any", len(checks))
             return True
 
         await asyncio.sleep(interval)
