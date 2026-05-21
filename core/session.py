@@ -47,9 +47,10 @@ SHARED_FLAGS = [
     "--disable-background-networking",
     "--disable-sync",
     "--disable-default-apps",
-    "--disable-extensions-except=/root/chrome-extensions/ublock",
-    "--load-extension=/root/chrome-extensions/ublock",
 ]
+
+# Files to clean up from profile dir on stale lock
+_LOCK_FILES = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
 
 
 def _find_free_port(start: int = BASE_CDP_PORT + 1) -> int:
@@ -70,6 +71,42 @@ def _check_port(port: int) -> bool:
         return False
 
 
+def _kill_processes_using_dir(profile_dir: Path) -> int:
+    """Kill all processes using a profile directory. Returns count killed."""
+    count = 0
+    try:
+        result = subprocess.run(
+            ["fuser", str(profile_dir)],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split()
+            for pid_str in pids:
+                try:
+                    pid = int(pid_str)
+                    os.kill(pid, signal.SIGKILL)
+                    count += 1
+                except (ValueError, ProcessLookupError):
+                    pass
+            if count:
+                time.sleep(1)  # Let OS clean up
+    except Exception as e:
+        logger.debug("fuser failed: %s", e)
+    return count
+
+
+def _clean_lock_files(profile_dir: Path):
+    """Remove Chrome singleton lock files from profile directory."""
+    for name in _LOCK_FILES:
+        lock_path = profile_dir / name
+        if lock_path.exists():
+            try:
+                lock_path.unlink()
+                logger.debug("Removed %s", lock_path)
+            except OSError as e:
+                logger.warning("Failed to remove %s: %s", lock_path, e)
+
+
 class Session:
     """Manage a named Chrome profile session.
 
@@ -85,6 +122,29 @@ class Session:
         self.profile_dir = PROFILES_ROOT / profile_name
         self.port = port or _find_free_port()
         self._process: Optional[subprocess.Popen] = None
+
+    def _cleanup_if_stale(self):
+        """If profile has lock files but no running Chrome, clean up."""
+        singleton = self.profile_dir / "SingletonLock"
+        if not singleton.exists():
+            return
+
+        # Check if any Chrome is actually using this profile
+        if _check_port(self.port):
+            logger.debug("Session '%s' appears alive on port %d",
+                         self.profile_name, self.port)
+            return
+
+        # Stale — kill any lingering processes and clean locks
+        logger.warning("Stale lock detected for session '%s', cleaning up",
+                       self.profile_name)
+        killed = _kill_processes_using_dir(self.profile_dir)
+        _clean_lock_files(self.profile_dir)
+        if killed:
+            logger.info("Killed %d stale processes for session '%s'",
+                        killed, self.profile_name)
+        # Wait for port to free
+        time.sleep(1)
 
     def launch(self) -> int:
         """Start Chrome with this session's profile.
@@ -102,6 +162,9 @@ class Session:
             logger.warning("Session '%s' already running on port %d",
                            self.profile_name, self.port)
             return self.port
+
+        # Clean up stale locks/processes from previous crash
+        self._cleanup_if_stale()
 
         # Ensure profile directory exists
         self.profile_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +187,6 @@ class Session:
         logger.info("Launching Chrome for session '%s' on port %d",
                     self.profile_name, self.port)
         logger.debug("Profile dir: %s", self.profile_dir)
-        logger.debug("Command: %s", " ".join(cmd))
 
         try:
             self._process = subprocess.Popen(
@@ -132,7 +194,7 @@ class Session:
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                preexec_fn=os.setsid,  # Create new process group
+                preexec_fn=os.setsid,
             )
         except Exception as e:
             raise RuntimeError(
@@ -140,7 +202,7 @@ class Session:
             )
 
         # Wait for CDP port to become available
-        deadline = time.time() + 15
+        deadline = time.time() + 30  # fresh profile + proxy may be slow
         while time.time() < deadline:
             if self._process.poll() is not None:
                 raise RuntimeError(
@@ -153,8 +215,17 @@ class Session:
                 return self.port
             time.sleep(0.5)
 
+        # Timeout — kill the Chrome process to avoid orphan
+        logger.error("Chrome CDP port %d not ready after 30s for session '%s', killing",
+                     self.port, self.profile_name)
+        try:
+            os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+            self._process.wait(timeout=3)
+        except Exception:
+            pass
+        self._process = None
         raise RuntimeError(
-            f"Chrome CDP port {self.port} not ready after 15s "
+            f"Chrome CDP port {self.port} not ready after 30s "
             f"for session '{self.profile_name}'"
         )
 
@@ -163,6 +234,7 @@ class Session:
 
         Sends SIGTERM, waits for graceful shutdown, then
         force-kills if still running after timeout.
+        Cleans up lock files on successful exit.
 
         Returns:
             True if Chrome exited cleanly, False if force-killed.
@@ -170,6 +242,7 @@ class Session:
         if self._process is None:
             logger.debug("Session '%s' not running, nothing to close",
                          self.profile_name)
+            _clean_lock_files(self.profile_dir)
             return True
 
         pid = self._process.pid
@@ -182,24 +255,33 @@ class Session:
         except ProcessLookupError:
             logger.debug("Process %d already gone", pid)
             self._process = None
+            _clean_lock_files(self.profile_dir)
             return True
 
         # Wait for graceful exit
+        clean = True
         try:
             self._process.wait(timeout=timeout)
             logger.info("Session '%s' exited cleanly", self.profile_name)
-            self._process = None
-            return True
         except subprocess.TimeoutExpired:
             logger.warning("Session '%s' did not exit, force-killing",
                            self.profile_name)
+            clean = False
             try:
                 os.killpg(os.getpgid(pid), signal.SIGKILL)
                 self._process.wait(timeout=2)
             except Exception:
                 pass
-            self._process = None
-            return False
+
+        self._process = None
+
+        # Clean up lock files
+        _clean_lock_files(self.profile_dir)
+        # Also ensure no lingering processes
+        time.sleep(0.5)
+        _kill_processes_using_dir(self.profile_dir)
+
+        return clean
 
     def is_alive(self) -> bool:
         """Check if Chrome process is running and CDP port is listening."""
@@ -232,8 +314,6 @@ def list_sessions() -> list[dict]:
     sessions = []
     for d in PROFILES_ROOT.iterdir():
         if d.is_dir():
-            # Check if Chrome is running using this profile
-            # (heuristic: look for SingletonLock)
             singleton = d / "SingletonLock"
             has_lock = singleton.exists()
             sessions.append({

@@ -39,17 +39,37 @@ _SSH_BASE = [
 
 
 def _ssh_exec(python_code: str, timeout: int = 30) -> str:
-    """Execute Python code on executor via SSH. Returns stdout."""
-    cmd = _SSH_BASE + [
-        "python3", "-c",
-        f"import sys; sys.path.insert(0, '{MERAKI_ROOT}'); {python_code}"
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"SSH command failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
-    return result.stdout.strip()
+    """Execute Python code on executor via SSH. Returns stdout.
+
+    Writes code to a temp file, SCPs it, then executes remotely
+    to avoid shell quoting issues with -c.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(f"import sys; sys.path.insert(0, '{MERAKI_ROOT}')\n")
+        f.write(python_code)
+        tmp_path = f.name
+
+    try:
+        scp_cmd = [
+            "scp", "-i", SSH_KEY, "-o", "BatchMode=yes",
+            tmp_path, f"{EXECUTOR_USER}@{EXECUTOR_HOST}:/tmp/_meraki_exec.py"
+        ]
+        subprocess.run(scp_cmd, capture_output=True, check=True, timeout=10)
+
+        ssh_cmd = _SSH_BASE + ["python3", "/tmp/_meraki_exec.py"]
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=timeout)
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"SSH command failed (exit {result.returncode}): {result.stderr.strip()}"
+            )
+        return result.stdout.strip()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 class SessionClient:
