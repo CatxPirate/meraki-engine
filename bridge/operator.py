@@ -4,19 +4,22 @@ All functions are async. Import from execute_code() or use via CLI wrapper.
 
 Usage from execute_code():
     sys.path.insert(0, "/home/ubuntu/meraki-engine")
-    from bridge.operator import navigate, locate, click, screenshot
+    from bridge.operator import Operator
 
-    await navigate("https://example.com")
-    coords = await locate("the green submit button")  # (x, y) or None
-    ok = await click("the green submit button")        # True/False
-    path = await screenshot()                           # file path
+    op = Operator()                     # default :9222
+    op = Operator(remote_cdp_port=9223) # session.py port
+
+    await op.navigate("https://example.com")
+    coords = await op.locate("the green submit button")
+    ok = await op.click("the green submit button")
+    path = await op.screenshot()
 """
 import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 # Ensure meraki-engine root is importable
 _ENGINE_ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +27,7 @@ if str(_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_ENGINE_ROOT))
 
 from bridge import ensure as ensure_tunnel
+from bridge import local_port as tunnel_local_port
 from primitive.dom import CdpClient
 from primitive.vision import (
     capture_screenshot,
@@ -35,22 +39,40 @@ from primitive.vision import (
 logger = logging.getLogger("meraki.bridge.operator")
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 19222  # tunneled
+DEFAULT_REMOTE_CDP_PORT = 9222
+DEFAULT_LOCAL_PORT = 19222
 
 
 class Operator:
-    """Persistent CDP connection for multi-step operations."""
+    """Persistent CDP connection for multi-step operations.
 
-    def __init__(self):
+    Args:
+        remote_cdp_port: Chrome CDP port on executor (default 9222).
+                         Session.py assigns ports like 9223, 9224, etc.
+    """
+
+    def __init__(self, remote_cdp_port: int = DEFAULT_REMOTE_CDP_PORT):
+        self._remote_port = remote_cdp_port
+        self._local_port: int | None = None
         self._cdp: CdpClient | None = None
 
+    @property
+    def remote_port(self) -> int:
+        return self._remote_port
+
+    @property
+    def local_port(self) -> int | None:
+        return self._local_port
+
     async def _get_cdp(self) -> CdpClient:
-        """Get or create CDP connection. Ensures tunnel is up."""
+        """Get or create CDP connection. Ensures tunnel is up for this port."""
         if self._cdp is None:
-            ensure_tunnel()
-            self._cdp = CdpClient(host=CDP_HOST, port=CDP_PORT)
+            self._local_port = tunnel_local_port(self._remote_port)
+            ensure_tunnel(self._remote_port)
+            self._cdp = CdpClient(host=CDP_HOST, port=self._local_port)
             await self._cdp.connect()
-            logger.debug("CDP connected via tunnel")
+            logger.debug("CDP connected via tunnel :%d -> executor:%d",
+                         self._local_port, self._remote_port)
         return self._cdp
 
     async def close(self):
@@ -89,7 +111,7 @@ class Operator:
         """Visually locate and click an element.
 
         Returns:
-            {"clicked": bool, "x": int|None, "y": int|None}
+            {"clicked": bool}
         """
         cdp = await self._get_cdp()
         result = await visual_click(description, cdp)
@@ -117,7 +139,7 @@ class Operator:
         return {"result": result}
 
 
-# Module-level convenience (one-shot, auto-close)
+# Module-level convenience (one-shot, auto-close, default port)
 _operator: Operator | None = None
 
 
