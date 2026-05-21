@@ -180,6 +180,11 @@ async def _retry_click(
             f"document.elementFromPoint({x}, {y})?.click()"
         )
 
+    async def vision_locate_fn() -> Tuple[int, int] | None:
+        """AI vision fallback: capture screenshot, locate element visually."""
+        from primitive.vision import visual_locate
+        return await visual_locate(selector, cdp)
+
     return await retryOrFallback(
         action=click_action,
         action_name=f"click('{selector}')",
@@ -187,5 +192,6 @@ async def _retry_click(
         scroll_fn=scroll_fn,
         coords=coords,
         coord_click_fn=coord_click_fn,
+        vision_locate_fn=vision_locate_fn,
         settings=settings,
     )

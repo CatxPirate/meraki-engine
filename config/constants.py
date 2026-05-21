@@ -5,6 +5,7 @@ class FallbackOrder(Enum):
     SCROLL = auto()
     HOVER = auto()
     COORDINATE = auto()
+    VISION = auto()
     HUMAN = auto()
 
 class VerifyStrategy(Enum):

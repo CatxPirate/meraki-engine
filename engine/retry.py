@@ -1,7 +1,7 @@
 """Retry orchestration with fallback chain — state machine pattern.
 
 Fallback order:
-    RETRY 3x → SCROLL → COORDINATE → HUMAN CONFIRM
+    RETRY 3x → SCROLL → COORDINATE → VISION → HUMAN CONFIRM
 
 Every step logs: what tried, why failed, what next.
 
@@ -44,6 +44,7 @@ class FallbackState(Enum):
     RETRYING = auto()
     SCROLLING = auto()
     COORDINATE = auto()
+    VISION = auto()
     HUMAN = auto()
     SUCCESS = auto()
     FAILED = auto()
@@ -66,6 +67,7 @@ class RetryOrchestrator:
         scroll_fn: Callable | None = None,
         coords: Tuple[int, int] | None = None,
         coord_click_fn: Callable | None = None,
+        vision_locate_fn: Callable | None = None,
         human_channel: "HumanConfirmChannel | None" = None,
     ) -> bool:
         """Execute action with full retry + fallback chain.
@@ -77,6 +79,9 @@ class RetryOrchestrator:
             scroll_fn: async callable(str) — scrolls to selector
             coords: (x, y) for coordinate fallback
             coord_click_fn: async callable(int, int) — clicks at coords
+            vision_locate_fn: async callable() -> Tuple[int,int] | None
+                AI vision-based element locator. Called when DOM
+                coordinate fallback fails. Returns (x,y) or None.
             human_channel: optional HumanConfirmChannel for
                 Telegram-based confirm. Without it, HUMAN state
                 raises immediately.
@@ -193,7 +198,48 @@ class RetryOrchestrator:
                 action_name,
             )
 
-        # --- Phase 4: Human confirm ---
+        # --- Phase 4: AI Vision fallback ---
+        self.state = FallbackState.VISION
+        if vision_locate_fn and coord_click_fn:
+            logger.info(
+                "[%s] VISION — using AI to locate element visually then clicking",
+                action_name,
+            )
+            try:
+                visual_coords = await vision_locate_fn()
+                if visual_coords:
+                    vx, vy = visual_coords
+                    logger.info(
+                        "[%s] VISION — element found at (%d, %d), clicking",
+                        action_name, vx, vy,
+                    )
+                    await coord_click_fn(vx, vy)
+                    await asyncio.sleep(self.settings.click_delay)
+                    result = await action()
+                    if result:
+                        self.state = FallbackState.SUCCESS
+                        logger.info(
+                            "[%s] SUCCESS — after AI vision click",
+                            action_name,
+                        )
+                        return True
+                else:
+                    logger.warning(
+                        "[%s] VISION — element not found visually",
+                        action_name,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[%s] VISION failed — %s", action_name, e,
+                )
+                last_error = f"Vision fallback failed: {e}"
+        else:
+            logger.info(
+                "[%s] VISION skipped — no vision_locate_fn, next: HUMAN",
+                action_name,
+            )
+
+        # --- Phase 5: Human confirm ---
         self.state = FallbackState.HUMAN
         logger.error(
             "[%s] ALL FALLBACKS EXHAUSTED — human confirm required",
@@ -249,6 +295,7 @@ async def retryOrFallback(
     scroll_fn: Callable | None = None,
     coords: Tuple[int, int] | None = None,
     coord_click_fn: Callable | None = None,
+    vision_locate_fn: Callable | None = None,
     settings: Settings | None = None,
     human_channel: "HumanConfirmChannel | None" = None,
 ) -> bool:
@@ -266,5 +313,6 @@ async def retryOrFallback(
         scroll_fn=scroll_fn,
         coords=coords,
         coord_click_fn=coord_click_fn,
+        vision_locate_fn=vision_locate_fn,
         human_channel=human_channel,
     )
