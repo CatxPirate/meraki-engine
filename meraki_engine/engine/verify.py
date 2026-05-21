@@ -11,7 +11,7 @@ import logging
 import numpy as np
 from PIL import Image
 
-from config.settings import Settings
+from meraki_engine.config.settings import Settings
 
 logger = logging.getLogger("meraki.verify")
 
@@ -73,7 +73,7 @@ async def dom_changed(
 
     Returns True if the element's visible state or text changed.
     """
-    from primitive.dom import locate
+    from meraki_engine.primitive.dom import locate
     after_state = await locate(selector, cdp)
 
     if not after_state:
@@ -100,7 +100,7 @@ async def url_changed(
     cdp=None,
 ) -> bool:
     """Check if page URL changed."""
-    from primitive.dom import CdpClient
+    from meraki_engine.primitive.dom import CdpClient
     cdp = cdp or CdpClient()
     current = await cdp.evaluate("window.location.href")
     return current != before_url
@@ -108,7 +108,7 @@ async def url_changed(
 
 async def loader_gone(cdp=None) -> bool:
     """Check if page loader has disappeared."""
-    from primitive.dom import CdpClient
+    from meraki_engine.primitive.dom import CdpClient
     cdp = cdp or CdpClient()
     ready = await cdp.evaluate(
         "document.readyState === 'complete'"

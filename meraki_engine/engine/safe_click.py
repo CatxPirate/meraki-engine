@@ -11,8 +11,8 @@ import asyncio
 import logging
 from typing import Tuple
 
-from config.settings import Settings
-from primitive.dom import (
+from meraki_engine.config.settings import Settings
+from meraki_engine.primitive.dom import (
     CdpClient,
     locate,
     is_visible,
@@ -20,13 +20,13 @@ from primitive.dom import (
     click,
     wait_for_element,
 )
-from engine.verify import (
+from meraki_engine.engine.verify import (
     dom_changed,
     url_changed,
     loader_gone,
     waitAndVerify,
 )
-from engine.retry import retryOrFallback, HumanConfirmRequired
+from meraki_engine.engine.retry import retryOrFallback, HumanConfirmRequired
 
 logger = logging.getLogger("meraki.safe_click")
 
@@ -182,7 +182,7 @@ async def _retry_click(
 
     async def vision_locate_fn() -> Tuple[int, int] | None:
         """AI vision fallback: capture screenshot, locate element visually."""
-        from primitive.vision import visual_locate
+        from meraki_engine.primitive.vision import visual_locate
         return await visual_locate(selector, cdp)
 
     return await retryOrFallback(

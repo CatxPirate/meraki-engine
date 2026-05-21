@@ -29,7 +29,7 @@ import os
 import sys
 from datetime import datetime
 
-from config.settings import Settings
+from meraki_engine.config.settings import Settings
 
 logger = logging.getLogger("meraki.human")
 

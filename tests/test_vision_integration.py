@@ -16,8 +16,8 @@ from urllib.parse import quote
 # Ensure meraki-engine root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from primitive.dom import CdpClient
-from primitive.vision import (
+from meraki_engine.primitive.dom import CdpClient
+from meraki_engine.primitive.vision import (
     capture_screenshot,
     visual_locate,
     VISION_CONFIDENCE_THRESHOLD,

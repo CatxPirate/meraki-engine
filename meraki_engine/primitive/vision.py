@@ -24,7 +24,7 @@ from typing import Tuple
 
 import urllib.request
 
-from primitive.dom import CdpClient
+from meraki_engine.primitive.dom import CdpClient
 
 logger = logging.getLogger("meraki.vision")
 

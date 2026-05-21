@@ -20,9 +20,9 @@ for candidate in ("/root/meraki-engine", "/home/ubuntu/meraki-engine"):
         sys.path.insert(0, candidate)
         break
 
-from primitive.dom import CdpClient
-from engine.safe_click import safe_click
-from engine.retry import HumanConfirmRequired
+from meraki_engine.primitive.dom import CdpClient
+from meraki_engine.engine.safe_click import safe_click
+from meraki_engine.engine.retry import HumanConfirmRequired
 
 logging.basicConfig(
     level=logging.DEBUG,

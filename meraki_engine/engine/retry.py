@@ -16,11 +16,11 @@ from collections.abc import Callable
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Tuple
 
-from config.settings import Settings
-from config.constants import FallbackOrder
+from meraki_engine.config.settings import Settings
+from meraki_engine.config.constants import FallbackOrder
 
 if TYPE_CHECKING:
-    from engine.human import HumanConfirmChannel
+    from meraki_engine.engine.human import HumanConfirmChannel
 
 logger = logging.getLogger("meraki.retry")
 
