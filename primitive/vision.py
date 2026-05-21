@@ -82,6 +82,13 @@ def _parse_vision_response(text: str) -> dict | None:
     """
     text = text.strip()
 
+    # Strip markdown code block wrapping (Gemini sometimes wraps JSON in ```json...```)
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+
     # Try direct JSON parse first
     try:
         return json.loads(text)
