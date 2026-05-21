@@ -1,6 +1,35 @@
-__pycache__/
-*.pyc
+# Sensitive — credentials, tokens, keys
 .env
 *.token
-logs/*.log
+*.key
+*.pem
+*.crt
+
+# Sessions & browser profiles (contain auth cookies)
+sessions/
+chrome-profiles/
+x_sessions/
+*.session.json
+*-session.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
 node_modules/
+
+# Logs
+logs/*.log
+*.log
+
+# Screenshot cache (may contain sensitive data)
+cache/screenshots/
+meraki-shots/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -229,17 +229,29 @@ class CdpClient:
     async def evaluate(self, expression: str) -> Any:
         """Evaluate JavaScript and return value.
 
-        Passes executionContextId if we have one — prevents
-        Runtime.evaluate returning None after navigation.
+        Tries with cached executionContextId first for performance,
+        falls back to no contextId if the cached one is stale (common
+        with SPAs that destroy/recreate contexts after navigation).
         """
-        params: dict = {
+        # First attempt: try with cached contextId
+        if self._execution_context_id is not None:
+            try:
+                result = await self._send("Runtime.evaluate", {
+                    "expression": expression,
+                    "returnByValue": True,
+                    "contextId": self._execution_context_id,
+                })
+                return result.get("result", {}).get("value")
+            except CDPError:
+                logger.debug("Cached context %s stale, retrying without contextId",
+                             self._execution_context_id)
+                self._execution_context_id = None
+
+        # Fallback: let Chrome pick default context
+        result = await self._send("Runtime.evaluate", {
             "expression": expression,
             "returnByValue": True,
-        }
-        if self._execution_context_id is not None:
-            params["contextId"] = self._execution_context_id
-
-        result = await self._send("Runtime.evaluate", params)
+        })
         return result.get("result", {}).get("value")
 
     async def close(self) -> None:
