@@ -1,110 +1,71 @@
 # Meraki Engine — Status Matrix
 
-Last updated: 2026-05-21 08:30 WIB
+Last updated: 2026-05-21 09:00 WIB
 
-## Layer Architecture
+## Status Summary
+
+| Layer | Module | Status | Description |
+|-------|--------|--------|-------------|
+| **primitive** | dom.py | Done | CDP selectors, visible check, scroll, click (377 lines) |
+| | vision.py | Done | Gemini 2.5 Flash visual locator, screenshot (392 lines) |
+| | gesture.py | Stub | Realistic mouse movement (future) |
+| **engine** | verify.py | Done | DOM change, URL, loader, visual diff (177 lines) |
+| | safe_click.py | Done | Locate -> verify -> click -> verify (197 lines) |
+| | retry.py | Done | DOM -> scroll -> coordinate -> human fallback (318 lines) |
+| | human.py | Done | Telegram human confirm interface (264 lines) |
+| **core** | session.py | Done | Persistent Chrome profiles, cookie/LS persistence (330 lines) |
+| | profile.py | Stub | Profile aging, cookies, cache management |
+| **bridge** | __init__.py | Done | SSH tunnel lifecycle, multi-port support |
+| | operator.py | Done | High-level ops: navigate, locate, click, screenshot |
+| | session_client.py | Done | SSH wrapper for remote session management |
+| **stealth** | FASE 1 (env, ID, fonts, WebRTC, lang) | Done | id-ID locale, stealth JS, WebRTC disable |
+| | FASE 2 (banner, uBlock, 1080p) | Done | No-sandbox banner, uBlock, 1920x1080 |
+| | FASE 3 (non-root, sandbox, warming) | Planned | Run as non-root user, enable sandbox |
+| **infra** | Xvfb + Openbox WM + Chrome + x11vnc + PM2 | Done | Full headless browser stack on executor VPS |
+
+## E2E Verification
+
+| Test | Result |
+|------|--------|
+| SSH tunnel auto-start | Pass |
+| CDP connection via tunnel | Pass |
+| Navigate + page title | Pass |
+| Visual locate (vision.py) | Pass |
+| Screenshot capture | Pass |
+| JavaScript evaluate | Pass |
+| Session launch (port assign) | Pass |
+| Session close (clean exit) | Pass |
+| Session re-launch (stale cleanup) | Pass |
+| Cookie persistence (httpbin.org) | Pass |
+| LocalStorage persistence | Pass |
+
+## Executor Details
+
+- Host: 62.146.235.5
+- Chrome: 148.0.7778.167 (stable)
+- CDP Port (main): 9222 (PM2 managed)
+- CDP Port (session): 9223+ (auto-assigned)
+- Profiles: /root/chrome-profiles/
+- SSH tunnel: local:19222 -> executor:9222
+
+## Hermes Integration
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  core/                           │
-│  session.py  [ ]    profile.py  [ ]             │
-├─────────────────────────────────────────────────┤
-│                  engine/                         │
-│  verify.py   [✓]    safe_click.py  [✓]          │
-│  retry.py    [✓]    human.py       [✓]          │
-├─────────────────────────────────────────────────┤
-│                primitive/                        │
-│  dom.py      [✓]    vision.py      [✓]          │
-│  gesture.py  [ ]                                 │
-├─────────────────────────────────────────────────┤
-│                 bridge/         NEW              │
-│  __init__.py [✓]    operator.py  [✓]            │
-└─────────────────────────────────────────────────┘
+from bridge.operator import Operator
+from bridge.session_client import SessionClient
+
+# Launch session
+port = SessionClient.launch("my_user")
+
+# Connect and operate
+op = Operator(remote_cdp_port=port)
+await op.navigate("https://example.com")
+result = await op.locate("the submit button")
+await op.click("the submit button")
+
+# Close
+await op.close()
+SessionClient.close("my_user")
 ```
 
-## Primitive Layer
-
-| Module | Status | Lines | Description |
-|--------|--------|-------|-------------|
-| `dom.py` | **✓ DONE** | 377 | CDP WebSocket client, selectors, scroll, visible check, viewport lock |
-| `vision.py` | **✓ DONE** | 392 | AI visual locator — screenshot capture + Gemini 2.5 Flash native API, visual click |
-| `gesture.py` | **○ STUB** | 1 | Realistic mouse movement (future) |
-
-## Engine Layer
-
-| Module | Status | Lines | Description |
-|--------|--------|-------|-------------|
-| `verify.py` | **✓ DONE** | 177 | DOM change, URL transition, loader detection, visual diff |
-| `safe_click.py` | **✓ DONE** | 197 | Click safety: locate → verify pre-state → click → verify post-state |
-| `retry.py` | **✓ DONE** | 318 | Multi-strategy fallback: DOM → scroll → coordinate → human confirm |
-| `human.py` | **✓ DONE** | 264 | Telegram human confirm interface (dependency injection) |
-
-## Bridge Layer (Hermes Integration)
-
-| Module | Status | Lines | Description |
-|--------|--------|-------|-------------|
-| `bridge/__init__.py` | **✓ DONE** | 80 | SSH tunnel lifecycle + GEMINI_API_KEY auto-load |
-| `bridge/operator.py` | **✓ DONE** | 160 | High-level operations: navigate, locate, click, screenshot, evaluate |
-
-**Integration verified:**
-- SSH tunnel: auto-start on first operation ✓
-- CDP connection: stable via tunnel :19222 → executor :9222 ✓
-- Visual locate: Gemini 2.5 Flash native API, found at (180, 178) ✓
-- Screenshot: capture + save to /tmp/meraki-shots/ ✓
-- JavaScript evaluate: DOM access, click verification ✓
-- Usage: `execute_code()` with `from bridge.operator import Operator`
-
-## Core Layer
-
-| Module | Status | Lines | Description |
-|--------|--------|-------|-------------|
-| `session.py` | **○ STUB** | 1 | Persistent Chrome session management — **NEXT** |
-| `profile.py` | **○ STUB** | 1 | Profile aging, cookies, cache management |
-
-## Stealth Roadmap
-
-| Phase | Status | Items |
-|-------|--------|-------|
-| **FASE 1** | **✓ DONE** | ID timezone/locale/fonts, stealth JS, WebRTC leak prevention, `lang=id-ID` |
-| **FASE 2** | **✓ DONE** | `--no-sandbox` banner suppressed, uBlock Origin, 1920×1080 resolution |
-| **FASE 3** | **○ PENDING** | Non-root Chrome + sandbox, behavioral warming |
-
-## Infrastructure (Executor VPS)
-
-| Component | Status |
-|-----------|--------|
-| Xvfb :99 (1920×1080) | ✓ |
-| Openbox WM | ✓ |
-| Chrome CDP :9222 | ✓ |
-| x11vnc :5900 | ✓ |
-| PM2 lifecycle (xvfb → openbox → x11vnc + chrome) | ✓ |
-| D-Bus (dbus-x11) | ✓ |
-| Gemini API key (.env) | ✓ |
-| uBlock Origin extension | ✓ |
-| Stealth JS injection | ✓ |
-
-## Commit History (Today)
-
-| Commit | Description |
-|--------|-------------|
-| `9fc255d` | fix(vision): strip markdown code block wrapping |
-| `d3b93a5` | fix(vision): maxOutputTokens 500→2048 |
-| `eb79518` | docs: update status matrix |
-| `f69f09b` | feat(bridge): Hermes integration — operator + tunnel manager |
-
-## Next Steps
-
-### HIGH — `core/session.py`
-Persistent Chrome session lifecycle:
-- Launch Chrome with meraki profile directory
-- Session persistence across restarts
-- Cookie/localStorage retention
-- Profile isolation per task
-
-### MEDIUM — `core/profile.py`, `primitive/gesture.py`
-- Profile aging with realistic history
-- Human-like mouse movement curves
-
-### LOW — FASE 3 Stealth
-- Non-root Chrome + sandbox
-- Behavioral warming cron job
+## Next: Stealth FASE 3 (non-root + sandbox)
