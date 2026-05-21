@@ -29,7 +29,7 @@ from primitive.gesture import GestureSimulator, warmup_browse
 logger = logging.getLogger(__name__)
 
 # Default session directory on executor
-DEFAULT_SESSION_DIR = "/root/chrome-profile/sessions"
+DEFAULT_SESSION_DIR = os.getenv("SESSION_DIR", "/root/chrome-profile/sessions")
 
 
 class XSessionManager:

@@ -33,7 +33,7 @@ EXECUTOR_USER = "root"
 SSH_KEY = os.getenv("EXECUTOR_SSH_KEY")
 if not SSH_KEY:
     raise ValueError("EXECUTOR_SSH_KEY environment variable not set")
-MERAKI_ROOT = "/root/meraki-engine"
+MERAKI_ROOT = os.getenv("MERAKI_ROOT", "/root/meraki-engine")
 
 _SSH_BASE = [
     "ssh", "-i", SSH_KEY,

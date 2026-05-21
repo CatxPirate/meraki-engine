@@ -21,10 +21,12 @@ import socket
 from pathlib import Path
 from typing import Optional
 
+from core.settings import PROXY_PORT
+
 logger = logging.getLogger("meraki.session")
 
 # Base directory for all Chrome profiles
-PROFILES_ROOT = Path("/root/chrome-profiles")
+PROFILES_ROOT = Path(os.getenv("PROFILES_ROOT", "/root/chrome-profiles"))
 
 # Chrome binary
 CHROME_BIN = "/opt/google/chrome/chrome"
@@ -38,7 +40,7 @@ SHARED_FLAGS = [
     "--disable-gpu",
     "--disable-dev-shm-usage",
     "--disable-dbus",
-    "--proxy-server=http://127.0.0.1:16666",
+    f"--proxy-server=http://127.0.0.1:{PROXY_PORT}",
     "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     "--lang=id-ID",
     "--accept-lang=id-ID,id,en-US,en",
