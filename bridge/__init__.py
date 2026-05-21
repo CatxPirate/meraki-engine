@@ -2,12 +2,28 @@
 
 Manages the SSH tunnel: localhost:19222 → executor:9222.
 Used by bridge.operator to ensure CDP is accessible before operations.
+
+Also auto-loads GEMINI_API_KEY from ~/meraki-engine/.env if available.
 """
+import os
 import subprocess
 import time
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("meraki.bridge.tunnel")
+
+# Auto-load API key from .env (needed for vision operations)
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+if _ENV_PATH.exists():
+    for line in _ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("GEMINI_API_KEY="):
+            key = line.split("=", 1)[1].strip().strip('"').strip("'")
+            if key and "GEMINI_API_KEY" not in os.environ:
+                os.environ["GEMINI_API_KEY"] = key
+                logger.debug("Loaded GEMINI_API_KEY from %s", _ENV_PATH)
+            break
 
 EXECUTOR_HOST = "62.146.235.5"
 EXECUTOR_USER = "root"
