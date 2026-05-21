@@ -280,7 +280,7 @@ async def visual_locate(
         ],
         "generationConfig": {
             "temperature": 0.0,
-            "maxOutputTokens": 500,
+            "maxOutputTokens": 2048,
         },
     }
 
