@@ -11,6 +11,9 @@ Run: Chrome must be running with --remote-debugging-port
 import asyncio
 import sys
 import os
+import pytest
+
+pytestmark = pytest.mark.integration
 from urllib.parse import quote
 
 # Ensure meraki-engine root is importable

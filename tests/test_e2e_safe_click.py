@@ -10,6 +10,9 @@ after Page.navigate — fixes the Runtime.evaluate → None blocker.
 
 import asyncio
 import logging
+import pytest
+
+pytestmark = pytest.mark.integration
 import sys
 import urllib.parse
 
