@@ -104,6 +104,21 @@ def _parse_vision_response(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
+    # Fallback: try to close truncated JSON
+    # e.g. {"found": true, "x": 100, "y" -> add closing brace
+    m = re.search(r'\{[\s\S]*?"found"[\s\S]*', text)
+    if m:
+        truncated = m.group(0).rstrip()
+        # Remove trailing comma if present then close
+        if truncated.endswith(","):
+            truncated = truncated[:-1]
+        if not truncated.endswith("}"):
+            truncated += "}"
+        try:
+            return json.loads(truncated)
+        except json.JSONDecodeError:
+            pass
+
     logger.warning("Failed to parse vision response: %s", text[:200])
     return None
 
@@ -258,7 +273,7 @@ async def visual_locate(
         ],
         "generationConfig": {
             "temperature": 0.0,
-            "maxOutputTokens": 200,
+            "maxOutputTokens": 500,
         },
     }
 
