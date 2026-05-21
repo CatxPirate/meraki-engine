@@ -41,7 +41,7 @@ Last updated: 2026-05-21 09:00 WIB
 
 ## Executor Details
 
-- Host: 62.146.235.5
+- Host: $EXECUTOR_HOST (set via .env)
 - Chrome: 148.0.7778.167 (stable)
 - CDP Port (main): 9222 (PM2 managed)
 - CDP Port (session): 9223+ (auto-assigned)

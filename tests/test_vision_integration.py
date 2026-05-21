@@ -6,7 +6,7 @@ Tests:
   3. coordinates are within expected bounds
 
 Run: ssh tunnel to executor CDP must be active
-  ssh -L 19222:127.0.0.1:9222 root@62.146.235.5
+  ssh -L 19222:127.0.0.1:9222 root@$EXECUTOR_HOST
 """
 import asyncio
 import sys

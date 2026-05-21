@@ -337,10 +337,12 @@ except Exception as e:
             f.write(session_json)
             tmp = f.name
 
+        ssh_key = os.getenv("EXECUTOR_SSH_KEY")
+        executor_host = os.getenv("EXECUTOR_HOST")
         subprocess.run([
-            "scp", "-i", "/home/ubuntu/.ssh/executor_key",
+            "scp", "-i", ssh_key,
             "-o", "ConnectTimeout=10",
-            tmp, f"root@62.146.235.5:{path}"
+            tmp, f"root@{executor_host}:{path}"
         ], capture_output=True, timeout=15, check=True)
         os.unlink(tmp)
 
