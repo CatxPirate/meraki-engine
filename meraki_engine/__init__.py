@@ -13,7 +13,7 @@ Quick start:
 
 # ── Primitive layer ──────────────────────────────────────────
 from meraki_engine.primitive.dom import CdpClient
-from meraki_engine.primitive.vision import visual_locate, capture_screenshot
+from meraki_engine.primitive.vision import visual_locate, capture_screenshot, visual_click, VISION_CONFIDENCE_THRESHOLD
 from meraki_engine.primitive.gesture import GestureSimulator, warmup_browse
 
 # ── Engine layer ─────────────────────────────────────────────
@@ -30,7 +30,7 @@ from meraki_engine.config.constants import FallbackOrder, VerifyStrategy
 
 __all__ = [
     "CdpClient",
-    "visual_locate", "capture_screenshot",
+    "visual_locate", "capture_screenshot", "visual_click", "VISION_CONFIDENCE_THRESHOLD",
     "GestureSimulator", "warmup_browse",
     "RetryOrchestrator", "FallbackState", "HumanConfirmRequired",
     "safe_click",
