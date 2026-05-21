@@ -29,9 +29,9 @@ if _ENV_PATH.exists():
                 logger.debug("Loaded GEMINI_API_KEY from %s", _ENV_PATH)
             break
 
-EXECUTOR_HOST = "62.146.235.5"
+EXECUTOR_HOST = os.getenv("EXECUTOR_HOST", "62.146.235.5")
 EXECUTOR_USER = "root"
-SSH_KEY = "/home/ubuntu/.ssh/executor_key"
+SSH_KEY = os.getenv("EXECUTOR_SSH_KEY", "/home/ubuntu/.ssh/executor_key")
 REMOTE_PORT = 9222
 LOCAL_PORT = 19222
 

@@ -17,6 +17,7 @@ Usage:
 
     client.close("my_user")
 """
+import os
 import json
 import subprocess
 import logging
@@ -25,9 +26,9 @@ from typing import Optional
 
 logger = logging.getLogger("meraki.bridge.session_client")
 
-EXECUTOR_HOST = "62.146.235.5"
+EXECUTOR_HOST = os.getenv("EXECUTOR_HOST", "62.146.235.5")
 EXECUTOR_USER = "root"
-SSH_KEY = "/home/ubuntu/.ssh/executor_key"
+SSH_KEY = os.getenv("EXECUTOR_SSH_KEY", "/home/ubuntu/.ssh/executor_key")
 MERAKI_ROOT = "/root/meraki-engine"
 
 _SSH_BASE = [

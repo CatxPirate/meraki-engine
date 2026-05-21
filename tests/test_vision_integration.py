@@ -1,4 +1,4 @@
-"""Integration test for vision.py — visual_locate via DeepCooK/Gemini Flash.
+"""Integration test for vision.py — visual_locate via Gemini 2.5 Flash.
 
 Tests:
   1. capture_screenshot via CDP tunneled to executor

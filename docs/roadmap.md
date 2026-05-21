@@ -8,7 +8,7 @@ Last updated: 2026-05-21 09:00 WIB
 |-------|--------|--------|-------------|
 | **primitive** | dom.py | Done | CDP selectors, visible check, scroll, click (377 lines) |
 | | vision.py | Done | Gemini 2.5 Flash visual locator, screenshot (392 lines) |
-| | gesture.py | Stub | Realistic mouse movement (future) |
+| | gesture.py | Done | CDP-verified realistic mouse movement (395 lines) |
 | **engine** | verify.py | Done | DOM change, URL, loader, visual diff (177 lines) |
 | | safe_click.py | Done | Locate -> verify -> click -> verify (197 lines) |
 | | retry.py | Done | DOM -> scroll -> coordinate -> human fallback (318 lines) |
