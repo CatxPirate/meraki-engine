@@ -70,7 +70,7 @@ def _build_vision_prompt(description: str, viewport_w: int, viewport_h: int) -> 
         f'{{"found": true|false, "x": <center_x_pixels>, "y": <center_y_pixels>, '
         f'"confidence": <0.0-1.0>, "reason": "<brief reason>"}}\n\n'
         f"Coordinates are viewport-relative: (0,0) = top-left corner. "
-        f"Use the CENTER of the element, not its corner."
+        f"Return the PRECISE center of the element, not approximate. Double-check."
     )
 
 
