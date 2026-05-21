@@ -1,6 +1,6 @@
 # Meraki Engine — Status Matrix
 
-Last updated: 2026-05-21 08:00 WIB
+Last updated: 2026-05-21 08:30 WIB
 
 ## Layer Architecture
 
@@ -16,6 +16,9 @@ Last updated: 2026-05-21 08:00 WIB
 │                primitive/                        │
 │  dom.py      [✓]    vision.py      [✓]          │
 │  gesture.py  [ ]                                 │
+├─────────────────────────────────────────────────┤
+│                 bridge/         NEW              │
+│  __init__.py [✓]    operator.py  [✓]            │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -27,17 +30,6 @@ Last updated: 2026-05-21 08:00 WIB
 | `vision.py` | **✓ DONE** | 392 | AI visual locator — screenshot capture + Gemini 2.5 Flash native API, visual click |
 | `gesture.py` | **○ STUB** | 1 | Realistic mouse movement (future) |
 
-### vision.py details
-- **API**: Gemini 2.5 Flash native (NOT DeepCooK proxy)
-- **Endpoint**: `generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`
-- **Features**: `capture_screenshot()`, `visual_locate()`, `visual_click()`, `capture_viewport()`
-- **Confidence threshold**: 0.6 (configurable)
-- **Max output tokens**: 2048
-- **Fixes applied** (2026-05-21):
-  - Strip markdown code block wrapping (` ```json ``` `) from Gemini response
-  - `maxOutputTokens` 500 → 2048 (prevent MAX_TOKENS truncation)
-- **Tests**: 3/3 PASS (screenshot capture, green button locate, blue button locate)
-
 ## Engine Layer
 
 | Module | Status | Lines | Description |
@@ -47,18 +39,33 @@ Last updated: 2026-05-21 08:00 WIB
 | `retry.py` | **✓ DONE** | 318 | Multi-strategy fallback: DOM → scroll → coordinate → human confirm |
 | `human.py` | **✓ DONE** | 264 | Telegram human confirm interface (dependency injection) |
 
+## Bridge Layer (Hermes Integration)
+
+| Module | Status | Lines | Description |
+|--------|--------|-------|-------------|
+| `bridge/__init__.py` | **✓ DONE** | 80 | SSH tunnel lifecycle + GEMINI_API_KEY auto-load |
+| `bridge/operator.py` | **✓ DONE** | 160 | High-level operations: navigate, locate, click, screenshot, evaluate |
+
+**Integration verified:**
+- SSH tunnel: auto-start on first operation ✓
+- CDP connection: stable via tunnel :19222 → executor :9222 ✓
+- Visual locate: Gemini 2.5 Flash native API, found at (180, 178) ✓
+- Screenshot: capture + save to /tmp/meraki-shots/ ✓
+- JavaScript evaluate: DOM access, click verification ✓
+- Usage: `execute_code()` with `from bridge.operator import Operator`
+
 ## Core Layer
 
 | Module | Status | Lines | Description |
 |--------|--------|-------|-------------|
-| `session.py` | **○ STUB** | 1 | Persistent Chrome session management — NEXT |
+| `session.py` | **○ STUB** | 1 | Persistent Chrome session management — **NEXT** |
 | `profile.py` | **○ STUB** | 1 | Profile aging, cookies, cache management |
 
 ## Stealth Roadmap
 
 | Phase | Status | Items |
 |-------|--------|-------|
-| **FASE 1** | **✓ DONE** | `env -i`, ID timezone/locale/fonts, stealth JS, WebRTC leak prevention, `lang=id-ID` |
+| **FASE 1** | **✓ DONE** | ID timezone/locale/fonts, stealth JS, WebRTC leak prevention, `lang=id-ID` |
 | **FASE 2** | **✓ DONE** | `--no-sandbox` banner suppressed, uBlock Origin, 1920×1080 resolution |
 | **FASE 3** | **○ PENDING** | Non-root Chrome + sandbox, behavioral warming |
 
@@ -76,6 +83,15 @@ Last updated: 2026-05-21 08:00 WIB
 | uBlock Origin extension | ✓ |
 | Stealth JS injection | ✓ |
 
+## Commit History (Today)
+
+| Commit | Description |
+|--------|-------------|
+| `9fc255d` | fix(vision): strip markdown code block wrapping |
+| `d3b93a5` | fix(vision): maxOutputTokens 500→2048 |
+| `eb79518` | docs: update status matrix |
+| `f69f09b` | feat(bridge): Hermes integration — operator + tunnel manager |
+
 ## Next Steps
 
 ### HIGH — `core/session.py`
@@ -85,13 +101,10 @@ Persistent Chrome session lifecycle:
 - Cookie/localStorage retention
 - Profile isolation per task
 
-### MEDIUM — Hermes Integration
-Wire Meraki Engine into Hermes Agent as a skill/tool:
-- CDP tunnel auto-management
-- `meraki_locate()` → Hermes tool
-- `meraki_click()` → Hermes tool
-- Vision screenshot → Hermes media delivery
-
-### LOW — `core/profile.py`, `primitive/gesture.py`
+### MEDIUM — `core/profile.py`, `primitive/gesture.py`
 - Profile aging with realistic history
 - Human-like mouse movement curves
+
+### LOW — FASE 3 Stealth
+- Non-root Chrome + sandbox
+- Behavioral warming cron job
