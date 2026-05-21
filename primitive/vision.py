@@ -8,8 +8,8 @@ Flow:
     2. visual_locate(description, cdp) → (x, y) from screenshot
     3. visual_click(description, cdp) → click at visual coordinates
 
-AI Vision: uses local DeepCooK/Gemini Flash model at localhost:20128
-which supports image inputs (OpenAI-compatible vision API).
+AI Vision: uses Google Gemini 2.5 Flash native API.
+Requires GEMINI_API_KEY environment variable.
 """
 
 import asyncio
@@ -31,19 +31,35 @@ logger = logging.getLogger("meraki.vision")
 # Default screenshot directory — configurable
 DEFAULT_SHOT_DIR = Path(tempfile.gettempdir()) / "meraki-shots"
 
-# Vision API endpoint (OpenAI-compatible)
-VISION_API_URL = "http://localhost:20128/v1/chat/completions"
-VISION_MODEL = "DeepCooK"
+# Gemini Vision API
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 VISION_CONFIDENCE_THRESHOLD = 0.6
 
 # Max image size to send to vision API (bytes)
 MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB
 
 
-def _build_vision_prompt(description: str, viewport_w: int, viewport_h: int) -> str:
-    """Build the prompt for the vision model to locate an element.
+def _get_api_key() -> str:
+    """Get Gemini API key from environment."""
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        key = os.environ.get("GOOGLE_API_KEY", "")
+    if not key:
+        logger.warning("No GEMINI_API_KEY or GOOGLE_API_KEY in environment")
+    return key
 
-    The prompt is designed to produce compact JSON output with precise
+
+def _gemini_url() -> str:
+    """Build Gemini API URL with API key."""
+    api_key = _get_api_key()
+    return f"{GEMINI_API_BASE}/{GEMINI_MODEL}:generateContent?key={api_key}"
+
+
+def _build_vision_prompt(description: str, viewport_w: int, viewport_h: int) -> str:
+    """Build the prompt for Gemini to locate an element.
+
+    Designed to produce compact JSON output with precise
     viewport-relative coordinates.
     """
     return (
@@ -59,13 +75,14 @@ def _build_vision_prompt(description: str, viewport_w: int, viewport_h: int) -> 
 
 
 def _parse_vision_response(text: str) -> dict | None:
-    """Extract JSON object from a vision model response.
+    """Extract JSON object from Gemini text response.
 
     Handles various formats: raw JSON, JSON in code blocks, JSON buried in text.
     Returns parsed dict or None if parsing fails.
     """
-    # Try direct JSON parse first
     text = text.strip()
+
+    # Try direct JSON parse first
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -183,10 +200,10 @@ async def visual_locate(
     screenshot_path: str | None = None,
     confidence_threshold: float = VISION_CONFIDENCE_THRESHOLD,
 ) -> Tuple[int, int] | None:
-    """Find element coordinates by visual description using AI vision.
+    """Find element coordinates by visual description using Gemini 2.5 Flash.
 
     1. Captures screenshot (or uses provided screenshot_path)
-    2. Sends to DeepCooK/Gemini Flash vision model at localhost:20128
+    2. Sends to Gemini native API with image + prompt
     3. Parses JSON response: {"found": bool, "x": int, "y": int, "confidence": float}
     4. Returns (x, y) center coordinates if confidence >= threshold
 
@@ -218,55 +235,73 @@ async def visual_locate(
         return None
 
     img_b64 = base64.b64encode(img_bytes).decode("ascii")
-    data_url = f"data:image/png;base64,{img_b64}"
 
     # Get viewport dimensions for context
     viewport_w = await cdp.evaluate("window.innerWidth") or 1920
     viewport_h = await cdp.evaluate("window.innerHeight") or 1080
 
-    # Build request
+    # Build Gemini-native request payload
     prompt = _build_vision_prompt(description, viewport_w, viewport_h)
     payload = {
-        "model": VISION_MODEL,
-        "messages": [
+        "contents": [
             {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+                "parts": [
+                    {"text": prompt},
                     {
-                        "type": "image_url",
-                        "image_url": {"url": data_url},
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": img_b64,
+                        }
                     },
-                ],
+                ]
             }
         ],
-        "max_tokens": 200,
-        "temperature": 0.0,
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 200,
+        },
     }
 
+    api_url = _gemini_url()
     logger.debug(
-        "Sending vision request: model=%s, desc=%s, img=%d bytes",
-        VISION_MODEL, description[:60], len(img_bytes),
+        "Sending Gemini vision request: model=%s, desc=%s, img=%d bytes",
+        GEMINI_MODEL, description[:60], len(img_bytes),
     )
 
     try:
         req = urllib.request.Request(
-            VISION_API_URL,
+            api_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer nope",  # required by OpenAI compat, not validated
-            },
+            headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            resp_data = json.loads(resp.read())
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw_resp_text = resp.read().decode("utf-8")
+            logger.debug("Gemini API raw response: %s", raw_resp_text[:500])
 
-        content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            logger.warning("Empty response from vision API")
+            # Guard: empty response
+            if not raw_resp_text or not raw_resp_text.strip():
+                logger.error("Gemini API returned empty response (HTTP %s)", resp.status)
+                return None
+
+            resp_data = json.loads(raw_resp_text)
+
+        # Parse Gemini response: candidates[0].content.parts[0].text
+        candidates = resp_data.get("candidates", [])
+        if not candidates:
+            logger.warning("Gemini returned no candidates: %s", resp_data.get("error", {}))
             return None
 
-        logger.debug("Vision raw response: %s", content[:300])
+        content = (
+            candidates[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        if not content:
+            logger.warning("Empty text in Gemini response")
+            return None
+
+        logger.debug("Gemini vision text: %s", content[:300])
 
         parsed = _parse_vision_response(content)
         if not parsed:
@@ -292,8 +327,12 @@ async def visual_locate(
 
         return (int(x), int(y))
 
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")[:500]
+        logger.error("Gemini API HTTP %s: %s", e.code, err_body)
+        return None
     except urllib.error.URLError as e:
-        logger.error("Vision API request failed: %s", e)
+        logger.error("Gemini API request failed: %s", e)
         return None
     except Exception as e:
         logger.exception("Unexpected error in visual_locate")
@@ -307,7 +346,7 @@ async def visual_click(
     """Full visual click: capture -> locate -> click.
 
     End-to-end vision-based clicking. Captures screenshot, locates
-    element via AI vision, then clicks at the returned coordinates.
+    element via Gemini vision, then clicks at the returned coordinates.
 
     Args:
         description: Natural language description of the element

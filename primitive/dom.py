@@ -83,12 +83,12 @@ class CdpClient:
         logger.debug("Viewport locked: %dx%d @%sx",
                       viewport_width, viewport_height, device_scale_factor)
 
-        # Wait for initial execution context
+        # Wait for initial execution context for robustness
         try:
-            await asyncio.wait_for(self._context_ready.wait(), timeout=5.0)
+            await asyncio.wait_for(self._context_ready.wait(), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning("No initial execution context — evaluate() "
-                           "will run without contextId until one arrives")
+            logger.warning("Initial execution context timeout. This can happen if the page "
+                           "is very slow or already has contexts cleared. Proceeding.")
 
     async def _listen(self) -> None:
         """Background task: read all WS messages, dispatch responses + events."""
