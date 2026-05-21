@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "meraki-engine"
+version = "0.1.0"
+description = "Hybrid browser operator — CDP primitives, vision, and human-like automation engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Meraki", email = "catxpirate@github.com"},
+]
+dependencies = [
+    "websockets>=12",
+    "Pillow>=10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.setuptools.packages.find]
+include = ["primitive*", "engine*", "config*"]

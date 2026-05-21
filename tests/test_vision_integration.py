@@ -5,8 +5,8 @@ Tests:
   2. visual_locate finds a known element on a test page
   3. coordinates are within expected bounds
 
-Run: ssh tunnel to executor CDP must be active
-  ssh -L 19222:127.0.0.1:9222 root@$EXECUTOR_HOST
+Run: Chrome must be running with --remote-debugging-port
+  Set CDP_PORT env var (default: 9222) or edit below
 """
 import asyncio
 import sys
@@ -24,7 +24,7 @@ from primitive.vision import (
 )
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 19222  # tunneled
+CDP_PORT = int(os.getenv("CDP_PORT", "9222"))  # default: local Chrome debugging port
 
 
 async def test_capture_screenshot():
