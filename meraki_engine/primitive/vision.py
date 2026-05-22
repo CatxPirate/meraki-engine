@@ -347,7 +347,18 @@ async def visual_locate(
             logger.warning("Vision found=true but coordinates missing")
             return None
 
-        return (int(x), int(y))
+        # Bounds check — prevent hallucinated coords from propagating
+        x_int, y_int = int(x), int(y)
+        if not (0 <= x_int <= viewport_w and 0 <= y_int <= viewport_h):
+            logger.warning(
+                "VISION_COORD_SANITY_FAIL: Gemini returned out-of-bounds coords "
+                "(%d, %d) for viewport %dx%d (desc=%s, conf=%.2f)",
+                x_int, y_int, viewport_w, viewport_h,
+                description[:60], confidence,
+            )
+            return None
+
+        return (x_int, y_int)
 
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="replace")[:500]
@@ -385,8 +396,31 @@ async def visual_click(
         return False
 
     x, y = coords
+
+    # Bounds check — double safety (visual_locate also checks, but belt+suspenders)
+    vw = await cdp.evaluate("window.innerWidth") or 1920
+    vh = await cdp.evaluate("window.innerHeight") or 1080
+    if not (0 <= x <= vw and 0 <= y <= vh):
+        logger.warning(
+            "VISION_COORD_SANITY_FAIL: visual_click received out-of-bounds "
+            "coords (%d, %d) for viewport %dx%d",
+            x, y, vw, vh,
+        )
+        return False
+
     logger.info("[visual_click] clicking at visual coords (%d, %d)", x, y)
-    await cdp.evaluate(
-        f"document.elementFromPoint({x}, {y})?.click()"
+    result = await cdp.evaluate(
+        f"(function(){{"
+        f"var el=document.elementFromPoint({x},{y});"
+        f"if(!el)return false;"
+        f"el.click();"
+        f"return true;"
+        f"}})()"
     )
-    return True
+    clicked = bool(result)
+    if not clicked:
+        logger.warning(
+            "VISION_COORD_SANITY_FAIL: no element at clicked coords (%d, %d)",
+            x, y,
+        )
+    return clicked
