@@ -45,6 +45,12 @@ class CdpClient:
         self._execution_context_id: int | None = None
         self._context_ready = asyncio.Event()
 
+    @property
+    def is_connected(self) -> bool:
+        """True if WebSocket is open and listener task is running."""
+        return self._ws is not None and self._listener_task is not None \
+            and not self._listener_task.done()
+
     def _get_page_ws_url(self) -> str:
         """Get WebSocket URL for any open page."""
         url = f"http://{self.host}:{self.port}/json"
@@ -132,7 +138,10 @@ class CdpClient:
     async def _send_cmd(self, method: str, params: dict | None = None) -> Any:
         """Send CDP command, return result. Internal — no auto-reconnect.
 
-        Public callers should use _send() which has reconnect logic.
+        On connection errors, closes WebSocket to mark CdpClient as dirty
+        so Operator._get_cdp() can detect and rebuild with tunnel ensure.
+
+        Public callers should use _send() which has one-shot reconnect logic.
         """
         if self._ws is None:
             raise CDPError("Not connected — call connect() first")
@@ -147,7 +156,12 @@ class CdpClient:
         future: asyncio.Future = loop.create_future()
         self._pending[msg_id] = future
 
-        await self._ws.send(json.dumps(cmd))
+        try:
+            await self._ws.send(json.dumps(cmd))
+        except (ConnectionError, websockets.ConnectionClosed) as e:
+            self._pending.pop(msg_id, None)
+            await self.close()  # mark dirty — is_connected → False
+            raise CDPError(f"Connection lost during send: {e}") from e
 
         try:
             result = await asyncio.wait_for(future, timeout=10)
@@ -157,17 +171,29 @@ class CdpClient:
             raise CDPError(f"Timeout waiting for response to {method}")
 
     async def _send(self, method: str, params: dict | None = None) -> Any:
-        """Send CDP command with auto-reconnect on connection loss.
+        """Send CDP command with one-shot auto-reconnect on connection loss.
+
+        On first failure: closes WebSocket, attempts reconnect via _reconnect().
+        If reconnect fails (e.g. tunnel dead): marks CdpClient dirty so
+        Operator._get_cdp() can detect is_connected=False and rebuild with
+        tunnel ensure on next call.
 
         Maintains backward compatibility with existing callers.
         """
         try:
             return await self._send_cmd(method, params)
         except (CDPError, ConnectionError, websockets.ConnectionClosed):
-            # Reconnect and retry once
-            logger.debug("CDP connection lost, reconnecting...")
-            await self._reconnect()
-            return await self._send_cmd(method, params)
+            # One reconnect attempt — handles transient WS drops
+            logger.debug("CDP connection lost, attempting one-shot reconnect...")
+            try:
+                await self._reconnect()
+                return await self._send_cmd(method, params)
+            except Exception:
+                # Reconnect failed (tunnel dead, Chrome dead, etc.)
+                # WS is already closed from _reconnect() → is_connected=False
+                # Bubble up to Operator for tunnel-aware recovery
+                logger.debug("CDP reconnect failed, bubbling up for tunnel recovery")
+                raise
 
     async def _reconnect(self) -> None:
         """Close old connection and establish new one."""

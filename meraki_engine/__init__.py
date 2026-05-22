@@ -11,6 +11,8 @@ Quick start:
     await cdp.navigate("https://example.com")
 """
 
+__version__ = "0.2.0"
+
 # ── Primitive layer ──────────────────────────────────────────
 from meraki_engine.primitive.dom import CdpClient
 from meraki_engine.primitive.vision import visual_locate, capture_screenshot, visual_click, VISION_CONFIDENCE_THRESHOLD
@@ -29,6 +31,7 @@ from meraki_engine.config.settings import Settings
 from meraki_engine.config.constants import FallbackOrder, VerifyStrategy
 
 __all__ = [
+    "__version__",
     "CdpClient",
     "visual_locate", "capture_screenshot", "visual_click", "VISION_CONFIDENCE_THRESHOLD",
     "GestureSimulator", "warmup_browse",

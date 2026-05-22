@@ -215,6 +215,91 @@ async def capture_viewport(
     )
 
 
+async def _dom_sanity_check(cdp: CdpClient, x: int, y: int) -> bool:
+    """Verify element exists at vision-returned coordinates via DOM.
+
+    Runs document.elementFromPoint() through CDP. Returns True if
+    an element is found at (x,y), False if null — Gemini hallucinated.
+    """
+    try:
+        el = await cdp.evaluate(
+            f"(function(){{"
+            f"var el=document.elementFromPoint({x},{y});"
+            f"return el !== null && el !== undefined;"
+            f"}})()"
+        )
+        return bool(el)
+    except Exception:
+        logger.warning("DOM sanity check failed (CDP error), allowing pass")
+        return True  # Don't reject on CDP failure — false negative risk
+
+
+async def _flag_overconfidence(
+    confidence: float,
+    cdp: CdpClient,
+    viewport_w: int,
+    viewport_h: int,
+) -> bool:
+    """Flag suspiciously high confidence on simple pages.
+
+    Gemini 2.5 Flash returns confidence >= 0.999 on trivial pages
+    (httpbin, bare HTML). Confidence alone is NOT a safety mechanism
+    on pages with <100 DOM elements.
+
+    Returns True if overconfidence anomaly detected.
+    """
+    if confidence < 0.995:
+        return False
+
+    try:
+        dom_count = await cdp.evaluate("document.querySelectorAll('*').length")
+        if dom_count and int(dom_count) < 100:
+            logger.warning(
+                "SUSPICIOUS_OVERCONFIDENCE: confidence=%.4f on page with "
+                "%d DOM elements (viewport %dx%d). "
+                "Confidence alone is insufficient safety — combine with "
+                "bounds + DOM sanity checks.",
+                confidence, int(dom_count), viewport_w, viewport_h,
+            )
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+async def _element_type_check(
+    cdp: CdpClient,
+    x: int,
+    y: int,
+) -> dict | None:
+    """Inspect element at coordinates for semantic mismatch detection.
+
+    Returns dict with tag, type, role, label, text — or None if CDP fails.
+    Does NOT reject — caller decides whether mismatch is actionable.
+    """
+    try:
+        result = await cdp.evaluate(
+            f"(function(){{"
+            f"var el=document.elementFromPoint({x},{y});"
+            f"if(!el)return JSON.stringify({{tag:'null'}});"
+            f"var info={{"
+            f"tag:el.tagName?el.tagName.toLowerCase():'unknown',"
+            f"type:el.getAttribute('type')||'',"
+            f"role:el.getAttribute('role')||'',"
+            f"label:el.getAttribute('aria-label')||el.getAttribute('title')||'',"
+            f"text:(el.textContent||'').substring(0,60).trim()"
+            f"}};"
+            f"return JSON.stringify(info);"
+            f"}})()"
+        )
+        if result and isinstance(result, str):
+            return json.loads(result)
+    except Exception:
+        pass
+    return None
+
+
 async def visual_locate(
     description: str,
     cdp: CdpClient | None = None,
@@ -358,6 +443,21 @@ async def visual_locate(
             )
             return None
 
+        # P3.1 — DOM sanity: verify element actually exists at Gemini coords
+        if not await _dom_sanity_check(cdp, x_int, y_int):
+            logger.warning(
+                "VISION_DOM_SANITY_FAIL: elementFromPoint(%d,%d) returned null "
+                "(Gemini claims element exists, DOM disagrees). desc=%s conf=%.2f",
+                x_int, y_int, description[:60], confidence,
+            )
+            return None
+
+        # P3.3 — Overconfidence flag on simple pages
+        if await _flag_overconfidence(confidence, cdp, viewport_w, viewport_h):
+            logger.warning(
+                "Do not trust confidence alone — combine with bounds + DOM sanity checks."
+            )
+
         return (x_int, y_int)
 
     except urllib.error.HTTPError as e:
@@ -409,6 +509,33 @@ async def visual_click(
         return False
 
     logger.info("[visual_click] clicking at visual coords (%d, %d)", x, y)
+
+    # P3.2 — Optional semantic type check (log-only, no rejection)
+    el_info = await _element_type_check(cdp, x, y)
+    if el_info:
+        tag = el_info.get("tag", "unknown")
+        el_type = el_info.get("type", "")
+        role = el_info.get("role", "")
+        text = el_info.get("text", "")
+
+        interactive_tags = {"a", "button", "input", "select", "textarea", "label", "summary"}
+        interactive_roles = {
+            "button", "link", "menuitem", "menuitemcheckbox", "menuitemradio",
+            "option", "tab", "switch", "checkbox", "radio",
+        }
+        is_interactive = (
+            tag in interactive_tags
+            or role in interactive_roles
+            or el_type in {"button", "submit", "reset"}
+        )
+
+        if not is_interactive:
+            logger.warning(
+                "VISION_SEMANTIC_MISMATCH: clicking non-interactive <%s> at (%d,%d) "
+                "role=%s type=%s text='%s' for desc='%s'",
+                tag, x, y, role, el_type, text, description[:60],
+            )
+
     result = await cdp.evaluate(
         f"(function(){{"
         f"var el=document.elementFromPoint({x},{y});"
